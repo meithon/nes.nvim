@@ -229,7 +229,7 @@ function M.parse_suggestions(ctx, next_version)
 		text_edit.range["end"].line = start_row + start_a + count_a - 1
 		-- delete lines
 		vim.api.nvim_buf_set_extmark(ctx.bufnr, ns_id, start_row + start_a - 1, 0, {
-			hl_group = "NesRemoved",
+			hl_group = "NesDelete",
 			end_line = start_row + start_a + count_a - 1,
 		})
 	else
@@ -279,7 +279,7 @@ function M.parse_suggestions(ctx, next_version)
 			border = "none",
 		})
 		vim.wo[preview_winnr].number = false
-		vim.wo[preview_winnr].winhighlight = "Normal:NesNormal"
+		vim.wo[preview_winnr].winhighlight = "Normal:NesAdd"
 
 		M.preview_winnr = preview_winnr
 	end
@@ -369,6 +369,13 @@ end
 
 function M.setup(opts)
 	opts = opts or {}
+
+	-- setup highlights
+	local diff_add = vim.api.nvim_get_hl(0, { name = "@diff.plus" })
+	local diff_del = vim.api.nvim_get_hl(0, { name = "@diff.minus" })
+	vim.api.nvim_set_hl(0, "NesAdd", { bg = string.format("#%x", diff_add.fg), default = true })
+	vim.api.nvim_set_hl(0, "NesDelete", { bg = string.format("#%x", diff_del.fg), default = true })
+
 	vim.keymap.set("i", "<A-i>", function()
 		M.get_suggestions()
 	end)
