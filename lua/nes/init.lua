@@ -68,7 +68,7 @@ Context.__index = Context
 function Context.new(bufnr)
 	local filename = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(bufnr), ":")
 	local original_code = vim.fn.readfile(filename)
-	local current_version = M.get_current_version(bufnr)
+	local current_version = Context.get_current_version(bufnr)
 	local self = {
 		bufnr = bufnr,
 		cursor = current_version.cursor,
@@ -95,6 +95,7 @@ function Context.new(bufnr)
 end
 
 function Context:payload()
+	-- copy from vscode
 	return {
 		messages = {
 			{
@@ -134,7 +135,7 @@ function Context:payload()
 	}
 end
 
-function M.get_current_version(bufnr)
+function Context.get_current_version(bufnr)
 	local cursor = vim.api.nvim_win_get_cursor(0)
 	local row, col = cursor[1] - 1, cursor[2]
 	local start_row = row - 20
@@ -159,12 +160,17 @@ end
 
 ---@param ctx nes.Context
 ---@param next_version string
-function M.parse_suggestions(ctx, next_version)
+local function parse_suggestion(ctx, next_version)
+	-- force clear the suggestion first, in case of duplicated request
+	M.clear_suggestion(ctx.bufnr)
+
 	if not vim.startswith(next_version, "<next-version>") then
 		vim.print("not found")
 		return
 	end
 	local old_version = ctx.current_version.text:gsub("<|cursor|>", "")
+
+	-- have to ignore the cursor tag, because the response doesn't have it most of the time, even if I force it in system prompt
 	next_version = next_version:gsub("<|cursor|>", "")
 	local new_lines = vim.split(next_version, "\n")
 	if vim.startswith(new_lines[1], "<next-version>") then
@@ -181,7 +187,6 @@ function M.parse_suggestions(ctx, next_version)
 	end
 	next_version = table.concat(new_lines, "\n")
 
-	-- vim.print(next_version)
 	local chunks = vim.diff(old_version, next_version, {
 		algorithm = "minimal",
 		ignore_cr_at_eol = true,
@@ -191,7 +196,6 @@ function M.parse_suggestions(ctx, next_version)
 		result_type = "indices",
 	})
 	if not chunks or #chunks == 0 then
-		vim.print("no changes")
 		return
 	end
 	local next_edit = chunks[1]
@@ -271,7 +275,7 @@ function M.parse_suggestions(ctx, next_version)
 		vim.wo[preview_winnr].number = false
 		vim.wo[preview_winnr].winhighlight = "Normal:NesAdd"
 
-		M.preview_winnr = preview_winnr
+		vim.b[ctx.bufnr].preview_winnr = preview_winnr
 	end
 
 	-- sometimes copilot returns duplicated code
@@ -287,7 +291,7 @@ function M.parse_suggestions(ctx, next_version)
 		)
 	)
 	if current == vim.trim(text_edit.newText) then
-		M.clear_suggestions(ctx.bufnr)
+		M.clear_suggestion(ctx.bufnr)
 		return
 	end
 
@@ -298,11 +302,17 @@ function M.parse_suggestions(ctx, next_version)
 		once = true,
 		desc = "[NES] auto clear next edit",
 		callback = function()
-			M.clear_suggestions(ctx.bufnr)
+			M.clear_suggestion(ctx.bufnr)
 		end,
 	})
 end
 
+---@class nes.Apply.Opts
+---@field jump? boolean auto jump to the end of the new edit
+---@field trigger? boolean auto trigger the next edit suggestion
+
+---@param bufnr? integer
+---@param opts? nes.Apply.Opts
 function M.apply_suggestion(bufnr, opts)
 	opts = opts or {}
 
@@ -313,7 +323,7 @@ function M.apply_suggestion(bufnr, opts)
 	end
 
 	vim.lsp.util.apply_text_edits({ vim.b[bufnr].nes }, bufnr, "utf-8")
-	M.clear_suggestions(bufnr)
+	M.clear_suggestion(bufnr)
 
 	if opts.jump then
 		if nes.newText then
@@ -325,12 +335,12 @@ function M.apply_suggestion(bufnr, opts)
 
 	if opts.trigger then
 		vim.schedule(function()
-			M.get_suggestions(bufnr)
+			M.get_suggestion(bufnr)
 		end)
 	end
 end
 
-function M.get_suggestions(bufnr)
+function M.get_suggestion(bufnr)
 	bufnr = bufnr and bufnr > 0 and bufnr or vim.api.nvim_get_current_buf()
 	local ctx = Context.new(bufnr)
 	local payload = ctx:payload()
@@ -338,22 +348,21 @@ function M.get_suggestions(bufnr)
 		local next_version = vim.trim(stdout)
 		assert(next_version)
 		if not vim.startswith(next_version, "<next-version>") then
-			vim.print("not found")
 			return
 		end
 		vim.schedule(function()
-			M.parse_suggestions(ctx, next_version)
+			parse_suggestion(ctx, next_version)
 		end)
 	end)
 end
 
-function M.clear_suggestions(bufnr)
+function M.clear_suggestion(bufnr)
 	bufnr = bufnr and bufnr > 0 and bufnr or vim.api.nvim_get_current_buf()
 	vim.api.nvim_buf_clear_namespace(bufnr, ns_id, 0, -1)
 	vim.b[bufnr].nes = nil
-	if M.preview_winnr then
-		pcall(vim.api.nvim_win_close, M.preview_winnr, true)
-		M.preview_winnr = nil
+	if vim.b[bufnr].preview_winnr then
+		pcall(vim.api.nvim_win_close, vim.b[bufnr].preview_winnr, true)
+		vim.b[bufnr].preview_winnr = nil
 	end
 end
 
@@ -365,13 +374,6 @@ function M.setup(opts)
 	local diff_del = vim.api.nvim_get_hl(0, { name = "@diff.minus" })
 	vim.api.nvim_set_hl(0, "NesAdd", { bg = string.format("#%x", diff_add.fg), default = true })
 	vim.api.nvim_set_hl(0, "NesDelete", { bg = string.format("#%x", diff_del.fg), default = true })
-
-	vim.keymap.set("i", "<A-i>", function()
-		M.get_suggestions()
-	end)
-	vim.keymap.set("i", "<A-n>", function()
-		M.apply_suggestion(nil, { jump = true, trigger = true })
-	end)
 end
 
 return M
