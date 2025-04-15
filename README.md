@@ -2,11 +2,12 @@
 
 Next edit suggestion
 
-
-
 https://github.com/user-attachments/assets/807042bc-1ecb-4a5f-8928-418293e7999b
 
+**⚠️ Early Development Notice**
 
+Please note that it is currently in a very early stage of development.
+Features may be incomplete, bugs are likely to occur and breaking changes may occur frequently. Use with caution.
 
 # Requirements
 
