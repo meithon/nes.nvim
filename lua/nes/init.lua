@@ -157,16 +157,6 @@ function M.get_current_version(bufnr)
 	}
 end
 
-local function call_api(payload, callback)
-	vim.system({ "python", vim.api.nvim_get_runtime_file("scripts/nes.py", false)[1] }, {
-		stdin = vim.json.encode(payload),
-		text = true,
-	}, function(obj)
-		assert(obj.code == 0, obj.stderr)
-		callback(obj.stdout)
-	end)
-end
-
 ---@param ctx nes.Context
 ---@param next_version string
 function M.parse_suggestions(ctx, next_version)
@@ -344,7 +334,7 @@ function M.get_suggestions(bufnr)
 	bufnr = bufnr and bufnr > 0 and bufnr or vim.api.nvim_get_current_buf()
 	local ctx = Context.new(bufnr)
 	local payload = ctx:payload()
-	call_api(payload, function(stdout)
+	require("nes.api").call(payload, function(stdout)
 		local next_version = vim.trim(stdout)
 		assert(next_version)
 		if not vim.startswith(next_version, "<next-version>") then
