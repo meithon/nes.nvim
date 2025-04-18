@@ -12,7 +12,7 @@ Features may be incomplete, bugs are likely to occur and breaking changes may oc
 # Requirements
 
 - `curl` in your `PATH`
-- `github/copilot.vim` or `zbirenbaum/copilot.lua`: we don't dependent them directly, should sigin first
+- `github/copilot.vim` or `zbirenbaum/copilot.lua`: we don't depend on them directly, but you should sign in first
 - `nvim-lua/plenary.nvim`
 
 # Installation
@@ -33,7 +33,7 @@ Features may be incomplete, bugs are likely to occur and breaking changes may oc
 
 # Configuration
 
-TODO
+no configuration currently.
 
 # Usage
 
@@ -45,7 +45,7 @@ This plugin provide three functions:
   - `trigger boolean`: auto trigger new suggestion
 - `clear_suggestion(bufnr)`
 
-Map these functions for your favorite keybindings. My keybindings are:
+Map these functions to your favorite keybindings. My keybindings are:
 
 ```lua
 -- lazy config
@@ -74,3 +74,8 @@ keys = {
 
 - `NesAdd`: highlight the added lines(default: bg = fg of "@diff.plus")
 - `NesDelete` highlight the deleted lines(default: bg = fg of "@diff.minus")
+
+# TODO:
+
+- multiple suggestions support
+- auto trigger
