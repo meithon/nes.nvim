@@ -72,8 +72,9 @@ keys = {
 
 # Highlight groups
 
-- `NesAdd`: highlight the added lines(default: bg = fg of "@diff.plus")
-- `NesDelete` highlight the deleted lines(default: bg = fg of "@diff.minus")
+- `NesAdd`: highlight the added lines(default: link to 'DiffAdd')
+- `NesDelete` highlight the deleted lines(default: link to 'DiffDelete')
+- `NesApply` highlight the added lines after applied(default: link to 'DiffText'). You can disable this by passing opt `jump = {hl_timeout = 0}` to `apply_suggestion` function.
 
 # TODO:
 
