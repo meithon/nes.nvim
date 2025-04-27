@@ -50,7 +50,7 @@ what I will do next. Do not skip any lines. Do not be lazy.
 ]]
 
 ---@class nes.Context
----@field cursor [integer, integer]
+---@field cursor [integer, integer] (1,0)-indexed
 ---@field original_code string
 ---@field edits string
 ---@field current_version table

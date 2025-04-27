@@ -147,10 +147,10 @@ function M._call(base_url, api_key, payload, callback)
 end
 
 function M.call(payload, callback)
-	with_token(function(api_token)
+	with_token(vim.schedule_wrap(function(api_token)
 		local base_url = api_token.endpoints.proxy or api_token.endpoints.api
 		M._call(base_url, api_token.token, payload, callback)
-	end)
+	end))
 end
 
 function M.debug()

@@ -230,7 +230,6 @@ function Server:on_inline_edit(params, callback)
 	params = params
 	local ctx = self._workspace[params.textDocument.uri]
 	if not ctx then
-		notify("No context for uri: " .. params.textDocument.uri, { level = vim.log.levels.WARN })
 		callback({ code = 1, message = "no context" })
 		return
 	end
