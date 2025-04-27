@@ -194,9 +194,6 @@ end
 ---@param ctx nes.Context
 ---@param next_version string
 local function parse_suggestion(ctx, next_version)
-	-- force clear the suggestion first, in case of duplicated request
-	M.clear_suggestion(ctx.bufnr)
-
 	if not vim.startswith(next_version, "<next-version>") then
 		vim.print("not found")
 		return
@@ -268,15 +265,13 @@ local function parse_suggestion(ctx, next_version)
 		end
 		table.insert(state.suggestions, { text_edit = text_edit })
 	end
-
-	state = M._display_next_suggestion(ctx.bufnr, state)
-	vim.b[ctx.bufnr].nes_state = state
+	return state
 end
 
 ---@param bufnr? integer
 function M.get_suggestion(bufnr)
 	bufnr = bufnr and bufnr > 0 and bufnr or vim.api.nvim_get_current_buf()
-	local ctx = Context.new(bufnr)
+	local ctx = Context.new_from_buffer(bufnr)
 	local payload = ctx:payload()
 	require("nes.api").call(payload, function(stdout)
 		local next_version = vim.trim(stdout)
@@ -285,7 +280,13 @@ function M.get_suggestion(bufnr)
 			return
 		end
 		vim.schedule(function()
-			parse_suggestion(ctx, next_version)
+			-- force clear the suggestion first, in case of duplicated request
+			M.clear_suggestion(bufnr)
+			local state = parse_suggestion(ctx, next_version)
+			if state then
+				state = M._display_next_suggestion(bufnr, state)
+				vim.b[bufnr].nes_state = state
+			end
 		end)
 	end)
 end
@@ -329,6 +330,109 @@ function M.clear_suggestion(bufnr)
 		end
 	end
 	vim.b[bufnr].nes_state = nil
+end
+
+---@return lsp.TextEdit[]?
+local function generate_edits(ctx, next_version)
+	if not vim.startswith(next_version, "<next-version>") then
+		return
+	end
+	local old_version = ctx.current_version.text:gsub("<|cursor|>", "")
+
+	-- have to ignore the cursor tag, because the response doesn't have it most of the time, even if I force it in system prompt
+	next_version = next_version:gsub("<|cursor|>", "")
+	local new_lines = vim.split(next_version, "\n")
+	if vim.startswith(new_lines[1], "<next-version>") then
+		table.remove(new_lines, 1)
+	end
+	if vim.startswith(new_lines[1], "```") then
+		table.remove(new_lines, 1)
+	end
+	if vim.startswith(new_lines[#new_lines], "</next-version>") then
+		table.remove(new_lines, #new_lines)
+	end
+	if vim.startswith(new_lines[#new_lines], "```") then
+		table.remove(new_lines, #new_lines)
+	end
+	next_version = table.concat(new_lines, "\n")
+
+	local chunks = vim.diff(old_version, next_version, {
+		algorithm = "minimal",
+		ignore_cr_at_eol = true,
+		ignore_whitespace_change_at_eol = true,
+		ignore_blank_lines = true,
+		ignore_whitespace = true,
+		result_type = "indices",
+	})
+	assert(type(chunks) == "table", "nes: invalid diff result")
+	if not chunks or #chunks == 0 then
+		return
+	end
+
+	local offset = ctx.current_version.start_row
+	local edits = {}
+	for _, next_edit in ipairs(chunks) do
+		local start_a, count_a = next_edit[1], next_edit[2]
+		local start_b, count_b = next_edit[3], next_edit[4]
+
+		---@type lsp.TextEdit
+		local text_edit = {
+			range = {
+				start = {
+					line = offset + start_a,
+					character = 0,
+				},
+				["end"] = {
+					line = 0, -- leave it empty for now
+					character = 0,
+				},
+			},
+			newText = "",
+		}
+
+		if count_a > 0 then
+			text_edit.range["start"].line = offset + start_a - 1
+			text_edit.range["end"].line = offset + start_a + count_a - 1
+		else
+			text_edit.range["end"].line = offset + start_a
+		end
+		if count_b > 0 then
+			local added_lines = {}
+			for i = start_b, start_b + count_b - 1 do
+				table.insert(added_lines, new_lines[i])
+			end
+			text_edit.newText = table.concat(added_lines, "\n") .. "\n"
+		end
+		table.insert(edits, text_edit)
+	end
+	return edits
+end
+
+---@param filename string
+---@param original_code string
+---@param current_code string
+---@param cursor [integer, integer] (1,0)-indexed (row, col)
+---@param lang string
+function M.fetch_suggestions(filename, original_code, current_code, cursor, lang, callback)
+	if current_code == original_code then
+		callback({})
+	end
+	--
+	-- local bufnr = vim.api.nvim_get_current_buf()
+	local ctx = Context.new(filename, original_code, current_code, cursor, lang)
+	local payload = ctx:payload()
+	require("nes.api").call(payload, function(stdout)
+		local next_version = vim.trim(stdout)
+		assert(next_version)
+		if not vim.startswith(next_version, "<next-version>") then
+			callback({})
+			return
+		end
+		vim.schedule(function()
+			local edits = generate_edits(ctx, next_version) or {}
+			callback(edits)
+		end)
+	end)
 end
 
 return M

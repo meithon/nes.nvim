@@ -1,11 +1,40 @@
-local curl = require("plenary.curl")
-
 local nvim_version = vim.version()
 
 local M = {}
 
 local _oauth_token
 local _api_token
+
+---@class nes.util.Curl
+local Curl = {}
+
+function Curl.request(method, url, opts)
+	opts = opts or {}
+	local bin = opts.binary or "curl"
+	local args = { bin, "-sSL", url, "-X", method }
+	for key, value in pairs(opts.headers or {}) do
+		table.insert(args, "-H")
+		table.insert(args, key .. ": " .. value)
+	end
+	if opts.body then
+		table.insert(args, "-d")
+		table.insert(args, "@-")
+	end
+	return vim.system(args, {
+		stdin = opts.body,
+		text = true,
+		stdout = opts.stdout,
+		stderr = opts.stderr,
+	}, opts.on_exit)
+end
+
+function Curl.get(url, opts)
+	return Curl.request("GET", url, opts)
+end
+
+function Curl.post(url, opts)
+	return Curl.request("POST", url, opts)
+end
 
 local function get_oauth_token()
 	if _oauth_token then
@@ -37,9 +66,9 @@ local function get_oauth_token()
 	end
 end
 
-local function get_api_token()
-	if _api_token and _api_token.expires_at > os.time() + 60000 then
-		return _api_token
+local function with_token(cb)
+	if _api_token and _api_token.expires_at > os.time() + 60 then
+		cb(_api_token)
 	end
 
 	local oauth_token = get_oauth_token()
@@ -47,68 +76,85 @@ local function get_api_token()
 		error("OAuth token not found")
 	end
 
-	local request = curl.get("https://api.github.com/copilot_internal/v2/token", {
+	return Curl.get("https://api.github.com/copilot_internal/v2/token", {
 		headers = {
 			Authorization = "Bearer " .. oauth_token,
 			["Accept"] = "application/json",
 			["User-Agent"] = "vscode-chat/dev",
 		},
-		on_error = function(err)
-			error("token request error: " .. err)
+		on_exit = function(out)
+			if out.code ~= 0 then
+				error(out.stderr or out.stdout or ("code: " .. out.code))
+				return
+			end
+			_api_token = vim.json.decode(out.stdout)
+			cb(_api_token)
 		end,
 	})
-	_api_token = vim.json.decode(request.body)
-	return _api_token
 end
 
-function M.call(payload, callback)
-	local api_token = get_api_token()
-	local base_url = api_token.endpoints.proxy or api_token.endpoints.api
-
-	local output = ""
-
-	local _request = curl.post(base_url .. "/chat/completions", {
+function M._call(base_url, api_key, payload, callback)
+	local _request = Curl.post(base_url .. "/chat/completions", {
 		headers = {
-			Authorization = "Bearer " .. api_token.token,
+			Authorization = "Bearer " .. api_key,
 			["User-Agent"] = "vscode-chat/dev",
 			["Content-Type"] = "application/json",
 			["Copilot-Integration-Id"] = "vscode-chat",
 			["editor-version"] = ("Neovim/%d.%d.%d"):format(nvim_version.major, nvim_version.minor, nvim_version.patch),
 			["editor-plugin-version"] = "nes/0.1.0",
 		},
-		on_error = function(err)
-			error("api request error: " .. err)
-		end,
 		body = vim.json.encode(payload),
-		stream = function(_, chunk)
-			if not chunk then
+		on_exit = function(out)
+			if out.code ~= 0 then
+				callback("")
+				error(out.stderr or ("code: " .. out.code))
 				return
 			end
-			if vim.startswith(chunk, "data: ") then
-				chunk = chunk:sub(6)
-			end
-			if chunk == "[DONE]" then
-				return
-			end
-			local ok, event = pcall(vim.json.decode, chunk)
-			if not ok then
-				return
-			end
-			if event and event.choices and event.choices[1] then
-				local choice = event.choices[1]
-				if choice.delta and choice.delta.content then
-					output = output .. choice.delta.content
+			local stdout = out.stdout
+			local lines = vim.split(stdout, "\n", { plain = true })
+			local chunks = {}
+			for _, line in ipairs(lines) do
+				line = vim.trim(line)
+				if line ~= "" then
+					if vim.startswith(line, "data: ") then
+						line = line:sub(7)
+					end
+					if line ~= "[DONE]" then
+						table.insert(chunks, line)
+					end
 				end
 			end
-		end,
-		callback = function()
+
+			local json_chunks = string.format("[%s]", table.concat(chunks, ","))
+			local ok, events = pcall(vim.json.decode, json_chunks)
+			if not ok then
+				callback("")
+				return
+			end
+
+			local output = ""
+			for _, event in ipairs(events) do
+				if event.choices and event.choices[1] then
+					local choice = event.choices[1]
+					if choice.delta and choice.delta.content then
+						output = output .. choice.delta.content
+					end
+				end
+			end
 			callback(output)
 		end,
 	})
 end
 
+function M.call(payload, callback)
+	with_token(function(api_token)
+		local base_url = api_token.endpoints.proxy or api_token.endpoints.api
+		M._call(base_url, api_token.token, payload, callback)
+	end)
+end
+
 function M.debug()
-	vim.print(get_api_token())
+	vim.print(_api_token)
 end
 
 return M

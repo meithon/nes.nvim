@@ -50,7 +50,6 @@ what I will do next. Do not skip any lines. Do not be lazy.
 ]]
 
 ---@class nes.Context
----@field bufnr number
 ---@field cursor [integer, integer]
 ---@field original_code string
 ---@field edits string
@@ -61,15 +60,26 @@ local Context = {}
 Context.__index = Context
 
 ---@return nes.Context
-function Context.new(bufnr)
+function Context.new_from_buffer(bufnr)
 	local filename = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(bufnr), ":")
 	local original_code = vim.fn.readfile(filename)
-	local current_version = Context.get_current_version(bufnr)
+	local current_code = table.concat(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false), "\n")
+	local cursor = vim.api.nvim_win_get_cursor(0)
+	local filetype = vim.bo[bufnr].filetype
+	return Context.new(filename, original_code, current_code, cursor, filetype)
+end
+
+---@param filename string
+---@param original_code string
+---@param current_code string
+---@param cursor [integer, integer] (row, col), (1,0)-indexed
+---@param lang string
+---@return nes.Context
+function Context.new(filename, original_code, current_code, cursor, lang)
 	local self = {
-		bufnr = bufnr,
-		cursor = current_version.cursor,
+		cursor = cursor,
 		original_code = table.concat(
-			vim.iter(original_code)
+			vim.iter(vim.split(original_code, "\n", { plain = true }))
 				:enumerate()
 				:map(function(i, line)
 					return string.format("%d│%s", i, line)
@@ -77,14 +87,10 @@ function Context.new(bufnr)
 				:totable(),
 			"\n"
 		),
-		edits = vim.diff(
-			table.concat(original_code, "\n"),
-			table.concat(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false), "\n"),
-			{ algorithm = "minimal" }
-		),
+		edits = vim.diff(original_code, current_code, { algorithm = "minimal" }),
 		filename = filename,
-		current_version = current_version,
-		filetype = vim.bo[bufnr].filetype,
+		current_version = Context._get_current_version(current_code, cursor),
+		filetype = lang,
 	}
 	setmetatable(self, Context)
 	return self
@@ -131,27 +137,34 @@ function Context:payload()
 	}
 end
 
-function Context.get_current_version(bufnr)
-	local cursor = vim.api.nvim_win_get_cursor(0)
+function Context._get_current_version(text, cursor)
 	local row, col = cursor[1] - 1, cursor[2]
-	local start_row = row - 20
-	if start_row < 0 then
-		start_row = 0
-	end
-	local end_row = row + 20
-	if end_row >= vim.api.nvim_buf_line_count(bufnr) then
-		end_row = vim.api.nvim_buf_line_count(bufnr) - 1
-	end
-	local end_col = vim.api.nvim_buf_get_lines(bufnr, end_row, end_row + 1, false)[1]:len()
+	local lines = vim.split(text, "\n", { plain = true })
+	local start_row = math.max(row - 20, 0)
+	local end_row = math.min(row + 20, #lines)
+	local start_col = 0
+	local end_col = lines[end_row]:len()
 
-	local before_cursor = vim.api.nvim_buf_get_text(bufnr, start_row, 0, row, col, {})
-	local after_cursor = vim.api.nvim_buf_get_text(bufnr, row, col, end_row, end_col, {})
-	return {
+	local before_cursor_lines = vim.list_slice(lines, start_row + 1, row)
+	local after_cursor_lines = vim.list_slice(lines, row + 2, end_row + 1)
+	local before_cursor_text = lines[row + 1]:sub(1, col)
+	local after_cursor_text = lines[row + 1]:sub(col + 1)
+
+	local res = {
 		cursor = cursor,
 		start_row = start_row,
 		end_row = end_row,
-		text = string.format("%s<|cursor|>%s", table.concat(before_cursor, "\n"), table.concat(after_cursor, "\n")),
+		start_col = start_col,
+		end_col = end_col,
+		text = string.format(
+			"%s\n%s<|cursor|>%s\n%s",
+			table.concat(before_cursor_lines, "\n"),
+			before_cursor_text,
+			after_cursor_text,
+			table.concat(after_cursor_lines, "\n")
+		),
 	}
+	return res
 end
 
 return Context
