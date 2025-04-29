@@ -356,56 +356,9 @@ local function generate_edits(ctx, next_version)
 	end
 	next_version = table.concat(new_lines, "\n")
 
-	local chunks = vim.diff(old_version, next_version, {
-		algorithm = "minimal",
-		ignore_cr_at_eol = true,
-		ignore_whitespace_change_at_eol = true,
-		ignore_blank_lines = true,
-		ignore_whitespace = true,
-		result_type = "indices",
+	return require("nes.util").text_edits_from_diff(old_version, next_version, {
+		line_offset = ctx.current_version.start_row,
 	})
-	assert(type(chunks) == "table", "nes: invalid diff result")
-	if not chunks or #chunks == 0 then
-		return
-	end
-
-	local offset = ctx.current_version.start_row
-	local edits = {}
-	for _, next_edit in ipairs(chunks) do
-		local start_a, count_a = next_edit[1], next_edit[2]
-		local start_b, count_b = next_edit[3], next_edit[4]
-
-		---@type lsp.TextEdit
-		local text_edit = {
-			range = {
-				start = {
-					line = offset + start_a,
-					character = 0,
-				},
-				["end"] = {
-					line = 0, -- leave it empty for now
-					character = 0,
-				},
-			},
-			newText = "",
-		}
-
-		if count_a > 0 then
-			text_edit.range["start"].line = offset + start_a - 1
-			text_edit.range["end"].line = offset + start_a + count_a - 1
-		else
-			text_edit.range["end"].line = offset + start_a
-		end
-		if count_b > 0 then
-			local added_lines = {}
-			for i = start_b, start_b + count_b - 1 do
-				table.insert(added_lines, new_lines[i])
-			end
-			text_edit.newText = table.concat(added_lines, "\n") .. "\n"
-		end
-		table.insert(edits, text_edit)
-	end
-	return edits
 end
 
 ---@param filename string

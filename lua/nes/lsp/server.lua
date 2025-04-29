@@ -1,12 +1,5 @@
 local Methods = vim.lsp.protocol.Methods
 
-local function notify(text, opts)
-	opts = opts or {}
-	opts.title = "[NES] " .. (opts.title or "")
-	opts.level = opts.level or vim.log.levels.INFO
-	vim.notify(text, opts.level, { title = opts.title })
-end
-
 ---@class nes.DocumentContext
 ---@field original lsp.TextDocumentItem
 ---@field current lsp.TextDocumentItem

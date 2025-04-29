@@ -1,40 +1,10 @@
 local nvim_version = vim.version()
+local Curl = require("nes.util").Curl
 
 local M = {}
 
 local _oauth_token
 local _api_token
-
----@class nes.util.Curl
-local Curl = {}
-
-function Curl.request(method, url, opts)
-	opts = opts or {}
-	local bin = opts.binary or "curl"
-	local args = { bin, "-sSL", url, "-X", method }
-	for key, value in pairs(opts.headers or {}) do
-		table.insert(args, "-H")
-		table.insert(args, key .. ": " .. value)
-	end
-	if opts.body then
-		table.insert(args, "-d")
-		table.insert(args, "@-")
-	end
-	return vim.system(args, {
-		stdin = opts.body,
-		text = true,
-		stdout = opts.stdout,
-		stderr = opts.stderr,
-	}, opts.on_exit)
-end
-
-function Curl.get(url, opts)
-	return Curl.request("GET", url, opts)
-end
-
-function Curl.post(url, opts)
-	return Curl.request("POST", url, opts)
-end
 
 local function get_oauth_token()
 	if _oauth_token then
