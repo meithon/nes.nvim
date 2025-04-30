@@ -273,7 +273,7 @@ function M.get_suggestion(bufnr)
 	bufnr = bufnr and bufnr > 0 and bufnr or vim.api.nvim_get_current_buf()
 	local ctx = Context.new_from_buffer(bufnr)
 	local payload = ctx:payload()
-	require("nes.api").call(payload, function(stdout)
+	local _job = require("nes.api").call(payload, function(stdout)
 		local next_version = vim.trim(stdout)
 		assert(next_version)
 		if not vim.startswith(next_version, "<next-version>") then
@@ -366,15 +366,15 @@ end
 ---@param current_code string
 ---@param cursor [integer, integer] (1,0)-indexed (row, col)
 ---@param lang string
+---@return fun() cancel
 function M.fetch_suggestions(filename, original_code, current_code, cursor, lang, callback)
 	if current_code == original_code then
 		callback({})
+		return function() end
 	end
-	--
-	-- local bufnr = vim.api.nvim_get_current_buf()
 	local ctx = Context.new(filename, original_code, current_code, cursor, lang)
 	local payload = ctx:payload()
-	require("nes.api").call(payload, function(stdout)
+	return require("nes.api").call(payload, function(stdout)
 		local next_version = vim.trim(stdout)
 		assert(next_version)
 		if not vim.startswith(next_version, "<next-version>") then

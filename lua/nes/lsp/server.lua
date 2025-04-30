@@ -8,7 +8,7 @@ local Methods = vim.lsp.protocol.Methods
 
 ---@alias nes.Workspace table<string, nes.DocumentContext>
 
----@alias nes.MethodHandler fun(server:nes.Server, params: any, callback?: fun(lsp.ResponseError?, any))
+---@alias nes.MethodHandler fun(server:nes.Server, params: any, callback?: fun(lsp.ResponseError?, any), message_id?: integer)
 
 ---@alias nes.InlineEditFilter  fun(edit: lsp.TextEdit): boolean
 
@@ -19,6 +19,7 @@ local Methods = vim.lsp.protocol.Methods
 ---@field private _client_initialized boolean
 ---@field private _running boolean
 ---@field private _filters nes.InlineEditFilter[]
+---@field private _inflights table<integer, fun()>
 ---@field private _next_message_id integer
 ---@field private _handlers table<string, nes.MethodHandler>
 local Server = {}
@@ -44,10 +45,14 @@ function Server.new(dispatchers)
 		_next_message_id = 1,
 		_initialized = false,
 		_running = true,
+		_inflights = {},
 		_filters = {
 			-- no more than 3 lines edit
 			function(edit)
 				return edit.range["end"].line - edit.range.start.line < 3
+			end,
+			function(edit)
+				return #vim.split(edit.newText, "\n") < 3
 			end,
 		},
 		_handlers = {
@@ -57,6 +62,8 @@ function Server.new(dispatchers)
 			[Methods.textDocument_didSave] = Server.on_did_save,
 			[Methods.textDocument_didChange] = Server.on_did_change,
 			[Methods.textDocument_didClose] = Server.on_did_close,
+			[Methods.dollar_cancelRequest] = Server.on_cancel_request,
+
 			["textDocument/copilotInlineEdit"] = Server.on_inline_edit,
 		},
 	}, Server)
@@ -95,7 +102,7 @@ function Server:request(method, params, callback, notify_reply_callback)
 	local handler = self._handlers[method]
 	if not handler then
 		vim.notify("No handler for method: " .. method, vim.log.levels.WARN)
-		return false, nil
+		return false
 	end
 	local message_id = self:new_message_id()
 
@@ -108,7 +115,8 @@ function Server:request(method, params, callback, notify_reply_callback)
 				if not err then
 					notify_reply_callback(message_id)
 				end
-			end)
+			end),
+			message_id
 		)
 	end)
 	return true, message_id
@@ -218,6 +226,14 @@ function Server:on_did_close(params, callback)
 	callback()
 end
 
+---@param params lsp.CancelParams
+function Server:on_cancel_request(params, callback)
+	local cancel = self._inflights[params.id] or function() end
+	cancel()
+
+	callback()
+end
+
 ---@class nes.InlineEditParams : lsp.TextDocumentPositionParams
 ---@field version integer
 
@@ -228,7 +244,12 @@ end
 ---@field textDocument lsp.VersionedTextDocumentIdentifier
 
 ---@param params nes.InlineEditParams
-function Server:on_inline_edit(params, callback)
+function Server:on_inline_edit(params, callback, message_id)
+	for msg_id, cancel in pairs(self._inflights) do
+		cancel()
+		self._inflights[msg_id] = nil
+	end
+
 	params = params
 	local ctx = self._workspace[params.textDocument.uri]
 	if not ctx then
@@ -253,7 +274,7 @@ function Server:on_inline_edit(params, callback)
 
 	local cursor = { params.position.line + 1, params.position.character }
 	local filename = vim.fn.fnamemodify(vim.uri_to_fname(ctx.original.uri), ":")
-	require("nes.core").fetch_suggestions(
+	local cancel = require("nes.core").fetch_suggestions(
 		filename,
 		ctx.original.text,
 		ctx.current.text,
@@ -261,6 +282,8 @@ function Server:on_inline_edit(params, callback)
 		ctx.original.languageId,
 		---@param edits lsp.TextEdit[]
 		function(edits)
+			self._inflights[message_id] = nil
+
 			if version ~= ctx.current.version then
 				-- drop outdated suggestions
 				callback(nil, { edits = {} })
@@ -293,6 +316,8 @@ function Server:on_inline_edit(params, callback)
 			callback(nil, { edits = { inline_edits[1] } })
 		end
 	)
+
+	self._inflights[message_id] = cancel
 end
 
 return Server

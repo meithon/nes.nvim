@@ -38,12 +38,14 @@ end
 
 local function with_token(cb)
 	if _api_token and _api_token.expires_at > os.time() + 60 then
-		cb(_api_token)
+		cb(nil, _api_token)
+		return
 	end
 
 	local oauth_token = get_oauth_token()
 	if not oauth_token then
-		error("OAuth token not found")
+		cb("OAuth token not found")
+		return
 	end
 
 	return Curl.get("https://api.github.com/copilot_internal/v2/token", {
@@ -54,17 +56,17 @@ local function with_token(cb)
 		},
 		on_exit = function(out)
 			if out.code ~= 0 then
-				error(out.stderr or out.stdout or ("code: " .. out.code))
+				cb(out.stderr or out.stdout or ("code: " .. out.code))
 				return
 			end
 			_api_token = vim.json.decode(out.stdout)
-			cb(_api_token)
+			cb(nil, _api_token)
 		end,
 	})
 end
 
 function M._call(base_url, api_key, payload, callback)
-	local _request = Curl.post(base_url .. "/chat/completions", {
+	return Curl.post(base_url .. "/chat/completions", {
 		headers = {
 			Authorization = "Bearer " .. api_key,
 			["User-Agent"] = "vscode-chat/dev",
@@ -77,7 +79,7 @@ function M._call(base_url, api_key, payload, callback)
 		on_exit = function(out)
 			if out.code ~= 0 then
 				callback("")
-				error(out.stderr or ("code: " .. out.code))
+				require("nes.util").notify(out.stderr or ("code: " .. out.code), vim.log.levels.ERROR)
 				return
 			end
 			local stdout = out.stdout
@@ -116,11 +118,24 @@ function M._call(base_url, api_key, payload, callback)
 	})
 end
 
+---@return fun() cancel
 function M.call(payload, callback)
-	with_token(vim.schedule_wrap(function(api_token)
+	local job
+	job = with_token(vim.schedule_wrap(function(err, api_token)
+		if err then
+			require("nes.util").notify("Failed to get API token: " .. vim.inspect(err), vim.log.levels.ERROR)
+			callback("")
+			return
+		end
 		local base_url = api_token.endpoints.proxy or api_token.endpoints.api
-		M._call(base_url, api_token.token, payload, callback)
+		job = M._call(base_url, api_token.token, payload, callback)
 	end))
+
+	return function()
+		if job then
+			job:kill(-1)
+		end
+	end
 end
 
 function M.debug()
