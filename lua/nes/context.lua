@@ -62,7 +62,7 @@ Context.__index = Context
 ---@return nes.Context
 function Context.new_from_buffer(bufnr)
 	local filename = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(bufnr), ":")
-	local original_code = vim.fn.readfile(filename)
+	local original_code = table.concat(vim.fn.readfile(filename, ""), "\n")
 	local current_code = table.concat(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false), "\n")
 	local cursor = vim.api.nvim_win_get_cursor(0)
 	local filetype = vim.bo[bufnr].filetype

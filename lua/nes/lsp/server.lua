@@ -10,12 +10,15 @@ local Methods = vim.lsp.protocol.Methods
 
 ---@alias nes.MethodHandler fun(server:nes.Server, params: any, callback?: fun(lsp.ResponseError?, any))
 
+---@alias nes.InlineEditFilter  fun(edit: lsp.TextEdit): boolean
+
 ---@class nes.Server
 ---@field dispatchers vim.lsp.rpc.Dispatchers
 ---@field private _workspace nes.Workspace
 ---@field private _initialized boolean
 ---@field private _client_initialized boolean
 ---@field private _running boolean
+---@field private _filters nes.InlineEditFilter[]
 ---@field private _next_message_id integer
 ---@field private _handlers table<string, nes.MethodHandler>
 local Server = {}
@@ -41,6 +44,12 @@ function Server.new(dispatchers)
 		_next_message_id = 1,
 		_initialized = false,
 		_running = true,
+		_filters = {
+			-- no more than 3 lines edit
+			function(edit)
+				return edit.range["end"].line - edit.range.start.line < 3
+			end,
+		},
 		_handlers = {
 			[Methods.initialize] = Server.on_initialize,
 			[Methods.initialized] = Server.on_initialized,
@@ -260,14 +269,24 @@ function Server:on_inline_edit(params, callback)
 			---@type nes.InlineEdit[]
 			local inline_edits = {}
 			for _, edit in ipairs(edits) do
-				table.insert(inline_edits, {
-					range = edit.range,
-					text = edit.newText,
-					textDocument = {
-						uri = ctx.current.uri,
-						version = ctx.current.version,
-					},
-				} --[[@as nes.InlineEdit]])
+				local ok = true
+				for _, filter in ipairs(self._filters) do
+					if not filter(edit) then
+						ok = false
+						break
+					end
+				end
+
+				if ok then
+					table.insert(inline_edits, {
+						range = edit.range,
+						text = edit.newText,
+						textDocument = {
+							uri = ctx.current.uri,
+							version = ctx.current.version,
+						},
+					} --[[@as nes.InlineEdit]])
+				end
 			end
 			ctx.pending_edits = inline_edits
 			ctx.last_applied = 0
