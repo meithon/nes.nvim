@@ -79,7 +79,7 @@ function M._call(base_url, api_key, payload, callback)
 		on_exit = function(out)
 			if out.code ~= 0 then
 				callback("")
-				require("nes.util").notify(out.stderr or ("code: " .. out.code), vim.log.levels.ERROR)
+				require("nes.util").notify(out.stderr or ("code: " .. out.code), { level = vim.log.levels.ERROR })
 				return
 			end
 			local stdout = out.stdout
@@ -123,7 +123,10 @@ function M.call(payload, callback)
 	local job
 	job = with_token(vim.schedule_wrap(function(err, api_token)
 		if err then
-			require("nes.util").notify("Failed to get API token: " .. vim.inspect(err), vim.log.levels.ERROR)
+			require("nes.util").notify(
+				"Failed to get API token: " .. vim.inspect(err),
+				{ level = vim.log.levels.ERROR }
+			)
 			callback("")
 			return
 		end
