@@ -61,12 +61,12 @@ Context.__index = Context
 
 ---@return nes.Context
 function Context.new_from_buffer(bufnr)
-	local filename = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(bufnr), ":")
-	local original_code = table.concat(vim.fn.readfile(filename, ""), "\n")
-	local current_code = table.concat(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false), "\n")
-	local cursor = vim.api.nvim_win_get_cursor(0)
-	local filetype = vim.bo[bufnr].filetype
-	return Context.new(filename, original_code, current_code, cursor, filetype)
+    local filename = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(bufnr), ":")
+    local original_code = table.concat(vim.fn.readfile(filename, ""), "\n")
+    local current_code = table.concat(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false), "\n")
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local filetype = vim.bo[bufnr].filetype
+    return Context.new(filename, original_code, current_code, cursor, filetype)
 end
 
 ---@param filename string
@@ -76,95 +76,125 @@ end
 ---@param lang string
 ---@return nes.Context
 function Context.new(filename, original_code, current_code, cursor, lang)
-	local self = {
-		cursor = cursor,
-		original_code = table.concat(
-			vim.iter(vim.split(original_code, "\n", { plain = true }))
-				:enumerate()
-				:map(function(i, line)
-					return string.format("%d│%s", i, line)
-				end)
-				:totable(),
-			"\n"
-		),
-		edits = vim.diff(original_code, current_code, { algorithm = "minimal" }),
-		filename = filename,
-		current_version = Context._get_current_version(current_code, cursor),
-		filetype = lang,
-	}
-	setmetatable(self, Context)
-	return self
+    local self = {
+        cursor = cursor,
+        original_code = table.concat(
+            vim.iter(vim.split(original_code, "\n", { plain = true }))
+                :enumerate()
+                :map(function(i, line)
+                    return string.format("%d│%s", i, line)
+                end)
+                :totable(),
+            "\n"
+        ),
+        edits = vim.diff(original_code, current_code, { algorithm = "minimal" }),
+        filename = filename,
+        current_version = Context._get_current_version(current_code, cursor),
+        filetype = lang,
+    }
+    setmetatable(self, Context)
+    ---@diagnostic disable-next-line: return-type-mismatch
+    return self
 end
 
 function Context:payload()
-	-- copy from vscode
-	return {
-		messages = {
-			{
-				role = "system",
-				content = SystemPrompt,
-			},
-			{
-				role = "user",
-				content = UserPromptTemplate:format(
-					self.filename,
-					self.original_code,
-					self.filename,
-					self.filename,
-					self.edits,
-					self.filename,
-					self.filetype,
-					self.current_version.text
-				),
-			},
-		},
-		model = "copilot-nes-v",
-		temperature = 0,
-		top_p = 1,
-		prediction = {
-			type = "content",
-			content = string.format(
-				"<next-version>\n```%s\n%s\n```\n</next-version>",
-				self.filetype,
-				self.current_version.text
-			),
-		},
-		n = 1,
-		stream = true,
-		snippy = {
-			enabled = false,
-		},
-	}
+    -- copy from vscode
+    return {
+        messages = {
+            {
+                role = "system",
+                content = SystemPrompt,
+            },
+            {
+                role = "user",
+                content = UserPromptTemplate:format(
+                    self.filename,
+                    self.original_code,
+                    self.filename,
+                    self.filename,
+                    self.edits,
+                    self.filename,
+                    self.filetype,
+                    self.current_version.text
+                ),
+            },
+        },
+        model = "copilot-nes-v",
+        temperature = 0,
+        top_p = 1,
+        prediction = {
+            type = "content",
+            content = string.format(
+                "<next-version>\n```%s\n%s\n```\n</next-version>",
+                self.filetype,
+                self.current_version.text
+            ),
+        },
+        n = 1,
+        stream = true,
+        snippy = {
+            enabled = false,
+        },
+    }
 end
 
 function Context._get_current_version(text, cursor)
-	local row, col = cursor[1] - 1, cursor[2]
-	local lines = vim.split(text, "\n", { plain = true })
-	local start_row = math.max(row - 20, 0)
-	local end_row = math.min(row + 20, #lines)
-	local start_col = 0
-	local end_col = lines[end_row]:len()
+    local row, col = cursor[1] - 1, cursor[2]
+    local lines = vim.split(text, "\n", { plain = true })
+    local start_row = math.max(row - 20, 0)
+    local end_row = math.min(row + 20, #lines)
+    local start_col = 0
+    local end_col = lines[end_row]:len()
 
-	local before_cursor_lines = vim.list_slice(lines, start_row + 1, row)
-	local after_cursor_lines = vim.list_slice(lines, row + 2, end_row + 1)
-	local before_cursor_text = lines[row + 1]:sub(1, col)
-	local after_cursor_text = lines[row + 1]:sub(col + 1)
+    local before_cursor_lines = vim.list_slice(lines, start_row + 1, row)
+    local after_cursor_lines = vim.list_slice(lines, row + 2, end_row + 1)
+    local before_cursor_text = lines[row + 1]:sub(1, col)
+    local after_cursor_text = lines[row + 1]:sub(col + 1)
 
-	local res = {
-		cursor = cursor,
-		start_row = start_row,
-		end_row = end_row,
-		start_col = start_col,
-		end_col = end_col,
-		text = string.format(
-			"%s\n%s<|cursor|>%s\n%s",
-			table.concat(before_cursor_lines, "\n"),
-			before_cursor_text,
-			after_cursor_text,
-			table.concat(after_cursor_lines, "\n")
-		),
-	}
-	return res
+    local res = {
+        cursor = cursor,
+        start_row = start_row,
+        end_row = end_row,
+        start_col = start_col,
+        end_col = end_col,
+        text = string.format(
+            "%s\n%s<|cursor|>%s\n%s",
+            table.concat(before_cursor_lines, "\n"),
+            before_cursor_text,
+            after_cursor_text,
+            table.concat(after_cursor_lines, "\n")
+        ),
+    }
+    return res
+end
+
+---@return lsp.TextEdit[]?
+function Context:generate_edits(next_version)
+    if not vim.startswith(next_version, "<next-version>") then
+        return
+    end
+    local old_version = self.current_version.text:gsub("<|cursor|>", "")
+
+    -- have to ignore the cursor tag, because the response doesn't have it most of the time, even if I force it in system prompt
+    next_version = next_version:gsub("<|cursor|>", "")
+    local new_lines = vim.split(next_version, "\n")
+    if vim.startswith(new_lines[1], "<next-version>") then
+        table.remove(new_lines, 1)
+    end
+    if vim.startswith(new_lines[1], "```") then
+        table.remove(new_lines, 1)
+    end
+    if #new_lines > 0 and vim.startswith(new_lines[#new_lines], "</next-version>") then
+        table.remove(new_lines, #new_lines)
+    end
+    if #new_lines > 0 and vim.startswith(new_lines[#new_lines], "```") then
+        table.remove(new_lines, #new_lines)
+    end
+    next_version = table.concat(new_lines, "\n")
+
+    return require("nes.util").text_edits_from_diff(old_version, next_version, {
+        line_offset = self.current_version.start_row,
+    })
 end
 
 return Context

@@ -9,4 +9,4 @@ test_file: deps/mini.nvim
 # Download 'mini.nvim' to use its 'mini.test' testing module
 deps/mini.nvim:
 	@mkdir -p deps
-	git clone --filter=blob:none https://github.com/echasnovski/mini.nvim $@
+	git clone --filter=blob:none https://github.com/echasnovski/mini.test.git $@
